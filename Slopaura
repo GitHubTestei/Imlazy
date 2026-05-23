@@ -451,7 +451,7 @@ deathBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- No Slow: if walkspeed drops below 16, snap it back instantly. Above 16 is ignored.
+
 noSlowBtn.MouseButton1Click:Connect(function()
     noSlowEnabled = not noSlowEnabled
     if noSlowEnabled then
