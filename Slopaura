@@ -6,10 +6,12 @@ local running = false
 local blocking = false
 local grabbing = false
 local spamming = false
-local AntiRagComboEnabled = false
+local antiGrabEnabled = false
+local AntiRagEnabled = false
+local AntiGrabRagEnabled = false
 local deathTpEnabled = false
 local noSlowEnabled = false
-local conn, blockConn, noSlowConn, grabConn
+local conn, blockConn, noSlowConn
 local lastDeathPos = nil
 
 local friendsList = {}
@@ -137,6 +139,14 @@ local _arc_wasGrabbed = false
 local _arc_platform = nil
 local _arc_platformStandConn = nil
 
+local function _arc_resetState()
+    _arc_originalCFrame = nil
+    _arc_returnTask = nil
+    _arc_hasCleanedThisRagdoll = false
+    _arc_inReturnWindow = false
+    _arc_wasGrabbed = false
+end
+
 local function _arc_removePlatform()
     if _arc_platformStandConn then _arc_platformStandConn:Disconnect() _arc_platformStandConn = nil end
     if _arc_platform then pcall(function() _arc_platform:Destroy() end) _arc_platform = nil end
@@ -217,9 +227,11 @@ local function _arc_doReturn(hrp, savedCFrame)
         _arc_removePlatform()
         if hrp and hrp.Parent and savedCFrame then
             hrp.CFrame = savedCFrame
-            task.delay(0.05, function() if hrp and hrp.Parent then hrp.AssemblyLinearVelocity = Vector3.new(0,-1,0) end end)
+            task.delay(0.05, function()
+                if hrp and hrp.Parent then hrp.AssemblyLinearVelocity = Vector3.new(0,-1,0) end
+            end)
         end
-        _arc_originalCFrame = nil _arc_returnTask = nil _arc_hasCleanedThisRagdoll = false _arc_inReturnWindow = false _arc_wasGrabbed = false
+        _arc_resetState()
     end)
 end
 
@@ -229,57 +241,77 @@ local function _arc_onCharacterAdded(char)
     if not hrp or not hum then return end
     if _arc_connection then _arc_connection:Disconnect() _arc_connection = nil end
     if _arc_platStandConn then _arc_platStandConn:Disconnect() _arc_platStandConn = nil end
-    _arc_originalCFrame = nil _arc_hasCleanedThisRagdoll = false _arc_inReturnWindow = false _arc_wasGrabbed = false
+    _arc_resetState()
     if _arc_returnTask then task.cancel(_arc_returnTask) _arc_returnTask = nil end
     task.wait(2.5)
-    if not AntiRagComboEnabled then return end
-    _arc_platStandConn = hum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
-        if not AntiRagComboEnabled or _arc_inReturnWindow then return end
-        if hum.PlatformStand then _arc_wasGrabbed = true if not _arc_originalCFrame then _arc_originalCFrame = hrp.CFrame end end
-    end)
+    if not AntiRagEnabled and not AntiGrabRagEnabled then return end
     _arc_connection = RS.Heartbeat:Connect(function()
-        if not AntiRagComboEnabled then return end
-        if not char.Parent or not hrp.Parent then if _arc_connection then _arc_connection:Disconnect() _arc_connection = nil end return end
+        if not AntiRagEnabled then return end
+        if not char.Parent or not hrp.Parent then
+            if _arc_connection then _arc_connection:Disconnect() _arc_connection = nil end
+            return
+        end
         if _arc_inReturnWindow then return end
         local total, disabled = _arc_countDisabledMotors(char)
         local isRagdolled = total >= 12 and (disabled/total) >= 0.9
         if isRagdolled then
             if not _arc_originalCFrame then _arc_originalCFrame = hrp.CFrame end
-            if _arc_wasGrabbed then
-                if not _arc_hasCleanedThisRagdoll then _arc_forceEndRagdoll(char) _arc_hasCleanedThisRagdoll = true end
-                if not _arc_returnTask then _arc_inReturnWindow = true _arc_doReturn(hrp, _arc_originalCFrame) end
-            else
+            if not _arc_hasCleanedThisRagdoll then
                 hrp.CFrame = _arc_safeCFrame
-                if not _arc_hasCleanedThisRagdoll then _arc_forceEndRagdoll(char) _arc_hasCleanedThisRagdoll = true end
+                _arc_forceEndRagdoll(char)
+                _arc_hasCleanedThisRagdoll = true
             end
         else
-            if not _arc_wasGrabbed and _arc_originalCFrame and not _arc_returnTask then
+            if _arc_originalCFrame and not _arc_returnTask then
                 _arc_inReturnWindow = true
                 local savedCFrame = _arc_originalCFrame
                 _arc_returnTask = task.delay(ArcDefaultDelay, function()
                     if hrp and hrp.Parent and savedCFrame then
                         hrp.CFrame = savedCFrame
-                        task.delay(0.05, function() if hrp and hrp.Parent then hrp.AssemblyLinearVelocity = Vector3.new(0,-1,0) end end)
+                        task.delay(0.05, function()
+                            if hrp and hrp.Parent then hrp.AssemblyLinearVelocity = Vector3.new(0,-1,0) end
+                        end)
                     end
-                    _arc_originalCFrame = nil _arc_returnTask = nil _arc_hasCleanedThisRagdoll = false _arc_inReturnWindow = false _arc_wasGrabbed = false
+                    _arc_resetState()
                 end)
             end
-            if not _arc_wasGrabbed then _arc_hasCleanedThisRagdoll = false end
+            _arc_hasCleanedThisRagdoll = false
         end
     end)
 end
 
 local function startARC()
-    AntiRagComboEnabled = true
     local char = me.Character
     if char then task.spawn(_arc_onCharacterAdded, char) end
 end
 
 local function stopARC()
-    AntiRagComboEnabled = false
-    if _arc_connection then _arc_connection:Disconnect() _arc_connection = nil end
-    if _arc_platStandConn then _arc_platStandConn:Disconnect() _arc_platStandConn = nil end
-    _arc_removePlatform()
+    if not AntiRagEnabled and not AntiGrabRagEnabled then
+        if _arc_connection then _arc_connection:Disconnect() _arc_connection = nil end
+        if _arc_platStandConn then _arc_platStandConn:Disconnect() _arc_platStandConn = nil end
+        _arc_removePlatform()
+    end
+end
+
+local function setupAntiGrab(char)
+    local hum = char:WaitForChild("Humanoid", 10)
+    local hrp = char:WaitForChild("HumanoidRootPart", 10)
+    if not hum or not hrp then return end
+    hum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+        if not antiGrabEnabled then return end
+        if hum.PlatformStand then
+            local originalPos = hrp.Position
+            -- fully reset ARC state so steady 1 works clean after this
+            _arc_resetState()
+            game:GetService("ReplicatedStorage").EventInviteSystem.EventTeleportEvent:FireServer()
+            task.delay(0.2, function()
+                local currentHrp = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+                if currentHrp then currentHrp.CFrame = CFrame.new(originalPos) end
+                -- reset again after teleport back so nothing is left dirty
+                _arc_resetState()
+            end)
+        end
+    end)
 end
 
 local function setupDeathTp(char)
@@ -292,6 +324,7 @@ end
 me.CharacterAdded:Connect(function(newChar)
     task.spawn(_arc_onCharacterAdded, newChar)
     task.spawn(setupDeathTp, newChar)
+    task.spawn(setupAntiGrab, newChar)
     if deathTpEnabled and lastDeathPos then
         task.wait(0.3)
         local hrp = newChar:FindFirstChild("HumanoidRootPart")
@@ -299,9 +332,10 @@ me.CharacterAdded:Connect(function(newChar)
     end
 end)
 
-if me.Character then task.spawn(setupDeathTp, me.Character) end
-
--- ===================== GUI =====================
+if me.Character then
+    task.spawn(setupDeathTp, me.Character)
+    task.spawn(setupAntiGrab, me.Character)
+end
 
 local sg = Instance.new("ScreenGui", me.PlayerGui)
 sg.ResetOnSpawn = false
@@ -322,7 +356,7 @@ toggle.TextSize = 11
 round(toggle, 10)
 
 local FRAME_W = 300
-local FRAME_H = 310
+local FRAME_H = 368
 local frame = Instance.new("Frame", sg)
 frame.Size = UDim2.new(0, FRAME_W, 0, FRAME_H)
 frame.Position = UDim2.new(1, -(FRAME_W+15), 0.5, -(FRAME_H/2))
@@ -421,28 +455,27 @@ local function makeTextBox(ypos, x, w, parent, placeholder)
     return tb
 end
 
--- left column buttons
-local actionBtn = makeBtn("aggresive 😣",   20)
-local blockBtn  = makeBtn("painkillas 😼",  52)
-local arcBtn    = makeBtn("steady 🙃",      84)
-local deathBtn  = makeBtn("blinking 😶",   116)
-local noSlowBtn = makeBtn("adrenaline 😗", 148)
-local grabBtn   = makeBtn("huggies ❤️",    180)
-local spamBtn   = makeBtn("spammyz 😙",    212)
-local msgBox    = makeTextBox(244, LX, LW, frame, "Type Here")
+local actionBtn   = makeBtn("aggresive 😣",   20)
+local blockBtn    = makeBtn("painkillas 😼",  52)
+local arcBtn      = makeBtn("steady 1 🙃",    84)
+local arcBtn2     = makeBtn("steady 2 🙃",   116)
+local deathBtn    = makeBtn("blinking 😶",   148)
+local noSlowBtn   = makeBtn("adrenaline 😗", 180)
+local antiGrabBtn = makeBtn("no touchy 😟",  212)
+local grabBtn     = makeBtn("huggies ❤️",    244)
+local spamBtn     = makeBtn("spammyz 😙",    276)
+local msgBox      = makeTextBox(308, LX, LW, frame, "Type Here")
 
--- vertical divider
 local vDiv = Instance.new("Frame", frame)
 vDiv.Size = UDim2.new(0, 1, 1, -20)
 vDiv.Position = UDim2.new(0, 152, 0, 10)
 vDiv.BackgroundColor3 = Color3.fromRGB(220, 140, 160)
 vDiv.BorderSizePixel = 0
 
--- right column
 local RX, RW = 160, 132
 
 makeLabel("besties", 20, RX, RW)
-local friendsBox  = makeTextBox(35,  RX, RW)
+local friendsBox  = makeTextBox(35, RX, RW)
 local friendHLBtn = makeBtn("bestie tag: off", 63, frame, RX, RW)
 friendHLBtn.TextSize = 10
 
@@ -457,7 +490,6 @@ local targetsBox  = makeTextBox(120, RX, RW)
 local targetHLBtn = makeBtn("baddie tag: off", 148, frame, RX, RW)
 targetHLBtn.TextSize = 10
 
--- list listeners
 friendsBox:GetPropertyChangedSignal("Text"):Connect(function()
     friendsList = parseList(friendsBox.Text)
     refreshTags()
@@ -517,14 +549,28 @@ blockBtn.MouseButton1Click:Connect(function()
 end)
 
 arcBtn.MouseButton1Click:Connect(function()
-    if not AntiRagComboEnabled then
-        startARC()
-        arcBtn.Text = "wobbly 😒"
+    AntiRagEnabled = not AntiRagEnabled
+    if AntiRagEnabled then
+        arcBtn.Text = "wobbly 1 😒"
         arcBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
+        startARC()
     else
-        stopARC()
-        arcBtn.Text = "steady 🙃"
+        arcBtn.Text = "steady 1 🙃"
         arcBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
+        stopARC()
+    end
+end)
+
+arcBtn2.MouseButton1Click:Connect(function()
+    AntiGrabRagEnabled = not AntiGrabRagEnabled
+    if AntiGrabRagEnabled then
+        arcBtn2.Text = "wobbly 2 😒"
+        arcBtn2.BackgroundColor3 = Color3.fromRGB(210,210,210)
+        startARC()
+    else
+        arcBtn2.Text = "steady 2 🙃"
+        arcBtn2.BackgroundColor3 = Color3.fromRGB(255,255,255)
+        stopARC()
     end
 end)
 
@@ -557,18 +603,31 @@ noSlowBtn.MouseButton1Click:Connect(function()
     end
 end)
 
+antiGrabBtn.MouseButton1Click:Connect(function()
+    antiGrabEnabled = not antiGrabEnabled
+    if antiGrabEnabled then
+        antiGrabBtn.Text = "yes touchy 😮"
+        antiGrabBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
+    else
+        antiGrabBtn.Text = "no touchy 😟"
+        antiGrabBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    end
+end)
+
 grabBtn.MouseButton1Click:Connect(function()
     grabbing = not grabbing
     if grabbing then
         grabBtn.Text = "gimmie space 💔"
         grabBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
-        grabConn = RS.Heartbeat:Connect(function()
-            game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Grab:InvokeServer()
+        task.spawn(function()
+            while grabbing do
+                game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Grab:InvokeServer()
+                task.wait()
+            end
         end)
     else
         grabBtn.Text = "huggies ❤️"
         grabBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
-        if grabConn then grabConn:Disconnect() grabConn = nil end
     end
 end)
 
