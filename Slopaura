@@ -1,0 +1,116 @@
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local me = Players.LocalPlayer
+local running = false
+local conn
+
+local function getNearest()
+    local nearest, shortest = nil, math.huge
+    local myRoot = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= me and p.Character then
+            local root = p.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local dist = (myRoot.Position - root.Position).Magnitude
+                if dist < shortest then nearest, shortest = p, dist end
+            end
+        end
+    end
+    return nearest
+end
+
+local function hit()
+    local target = getNearest()
+    if target and target.Character then
+        game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Hit:InvokeServer(target.Character.Humanoid)
+    end
+end
+
+local sg = Instance.new("ScreenGui", me.PlayerGui)
+sg.ResetOnSpawn = false
+
+local function round(obj, r)
+    Instance.new("UICorner", obj).CornerRadius = UDim.new(0, r)
+end
+
+local toggle = Instance.new("TextButton", sg)
+toggle.Size = UDim2.new(0, 80, 0, 40)
+toggle.Position = UDim2.new(1, -90, 0, 10)
+toggle.Text = "tawggle🥺"
+toggle.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+toggle.TextColor3 = Color3.new(1,1,1)
+toggle.BorderSizePixel = 0
+toggle.Font = Enum.Font.GothamBold
+toggle.TextSize = 14
+round(toggle, 10)
+
+local frame = Instance.new("Frame", sg)
+frame.Size = UDim2.new(0, 180, 0, 90)
+frame.Position = UDim2.new(1, -200, 0.5, -45)
+frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.Active = true
+round(frame, 16)
+
+local actionBtn = Instance.new("TextButton", frame)
+actionBtn.Size = UDim2.new(0.78, 0, 0.58, 0)
+actionBtn.Position = UDim2.new(0.11, 0, 0.21, 0)
+actionBtn.Text = "Start"
+actionBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+actionBtn.TextColor3 = Color3.fromRGB(30, 30, 30)
+actionBtn.BorderSizePixel = 0
+actionBtn.Font = Enum.Font.GothamBold
+actionBtn.TextSize = 15
+round(actionBtn, 10)
+
+toggle.MouseButton1Click:Connect(function()
+    frame.Visible = not frame.Visible
+end)
+
+actionBtn.MouseButton1Click:Connect(function()
+    running = not running
+    if running then
+        actionBtn.Text = "passive 😖"
+        actionBtn.BackgroundColor3 = Color3.fromRGB(210, 210, 210)
+        conn = RS.Heartbeat:Connect(hit)
+    else
+        actionBtn.Text = "aggresive 😣"
+        actionBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        if conn then conn:Disconnect() conn = nil end
+    end
+end)
+
+local dragging = false
+local dragStart, frameStart
+
+local function onInputBegan(i)
+    if frame.Visible and i.UserInputType == Enum.UserInputType.Touch then
+        local pos = i.Position
+        local ap = frame.AbsolutePosition
+        local as = frame.AbsoluteSize
+        if pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y then
+            dragging = true
+            dragStart = pos
+            frameStart = ap
+        end
+    end
+end
+
+local function onInputChanged(i)
+    if dragging and i.UserInputType == Enum.UserInputType.Touch then
+        local delta = i.Position - dragStart
+        frame.Position = UDim2.new(0, frameStart.X + delta.X, 0, frameStart.Y + delta.Y)
+    end
+end
+
+local function onInputEnded(i)
+    if i.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end
+
+game:GetService("UserInputService").InputBegan:Connect(onInputBegan)
+game:GetService("UserInputService").InputChanged:Connect(onInputChanged)
+game:GetService("UserInputService").InputEnded:Connect(onInputEnded)
