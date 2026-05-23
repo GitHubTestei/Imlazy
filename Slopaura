@@ -290,9 +290,6 @@ end)
 local char = me.Character
 if char then task.spawn(setupDeathTp, char) end
 
--- ============================================================
--- GUI
--- ============================================================
 local sg = Instance.new("ScreenGui", me.PlayerGui)
 sg.ResetOnSpawn = false
 
@@ -320,7 +317,7 @@ frame.Visible = false
 frame.Active = true
 round(frame, 16)
 
--- Drag bar at top of frame only
+
 local dragBar = Instance.new("Frame", frame)
 dragBar.Size = UDim2.new(1, 0, 0, 18)
 dragBar.BackgroundColor3 = Color3.fromRGB(240, 150, 165)
@@ -360,9 +357,6 @@ toggle.MouseButton1Click:Connect(function()
     frame.Visible = not frame.Visible
 end)
 
--- ============================================================
--- DRAG (drag bar only)
--- ============================================================
 do
     local dragging, dragStart, frameStart = false, nil, nil
 
@@ -391,9 +385,6 @@ do
     end)
 end
 
--- ============================================================
--- BUTTON LOGIC
--- ============================================================
 actionBtn.MouseButton1Click:Connect(function()
     running = not running
     if running then
