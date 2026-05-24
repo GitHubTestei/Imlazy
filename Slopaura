@@ -13,6 +13,8 @@ local deathTpEnabled = false
 local noSlowEnabled = false
 local conn, blockConn, noSlowConn
 local lastDeathPos = nil
+local antiGrabDelay = 0.2
+local hitMultiplier = 1
 
 local friendsList = {}
 local targetsList = {}
@@ -122,7 +124,9 @@ end
 local function hit()
     local target = getNearest()
     if target and target.Character then
-        game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Hit:InvokeServer(target.Character.Humanoid)
+        for i = 1, hitMultiplier do
+            game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Hit:InvokeServer(target.Character.Humanoid)
+        end
     end
 end
 
@@ -139,12 +143,40 @@ local _arc_wasGrabbed = false
 local _arc_platform = nil
 local _arc_platformStandConn = nil
 
+local _badZoneCFrame = CFrame.new(50.6816101, 3.70000315, 117.850357, -0.69541502, -2.31521002e-09, -0.71860832, 2.70699267e-08, 1, -2.94180325e-08, 0.71860832, -3.99104181e-08, -0.69541502)
+local _badZonePos = _badZoneCFrame.Position
+local _lastSafePos = nil
+local _badZoneConn = nil
+
 local function _arc_resetState()
     _arc_originalCFrame = nil
     _arc_returnTask = nil
     _arc_hasCleanedThisRagdoll = false
     _arc_inReturnWindow = false
     _arc_wasGrabbed = false
+end
+
+local function _startBadZoneWatch()
+    if _badZoneConn then return end
+    _badZoneConn = RS.Heartbeat:Connect(function()
+        if not antiGrabEnabled then return end
+        local hrp = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local dist = (hrp.Position - _badZonePos).Magnitude
+        if dist <= 10 then
+            if _lastSafePos then
+                hrp.CFrame = _lastSafePos
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                _arc_resetState()
+            end
+        else
+            _lastSafePos = hrp.CFrame
+        end
+    end)
+end
+
+local function _stopBadZoneWatch()
+    if _badZoneConn then _badZoneConn:Disconnect() _badZoneConn = nil end
 end
 
 local function _arc_removePlatform()
@@ -301,13 +333,11 @@ local function setupAntiGrab(char)
         if not antiGrabEnabled then return end
         if hum.PlatformStand then
             local originalPos = hrp.Position
-            -- fully reset ARC state so steady 1 works clean after this
             _arc_resetState()
             game:GetService("ReplicatedStorage").EventInviteSystem.EventTeleportEvent:FireServer()
-            task.delay(0.2, function()
+            task.delay(antiGrabDelay, function()
                 local currentHrp = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
                 if currentHrp then currentHrp.CFrame = CFrame.new(originalPos) end
-                -- reset again after teleport back so nothing is left dirty
                 _arc_resetState()
             end)
         end
@@ -322,6 +352,7 @@ local function setupDeathTp(char)
 end
 
 me.CharacterAdded:Connect(function(newChar)
+    _lastSafePos = nil
     task.spawn(_arc_onCharacterAdded, newChar)
     task.spawn(setupDeathTp, newChar)
     task.spawn(setupAntiGrab, newChar)
@@ -347,7 +378,7 @@ end
 local toggle = Instance.new("TextButton", sg)
 toggle.Size = UDim2.new(0, 70, 0, 26)
 toggle.Position = UDim2.new(1, -80, 0, 10)
-toggle.Text = "tawggle🥺"
+toggle.Text = "menu"
 toggle.BackgroundColor3 = Color3.fromRGB(255, 182, 193)
 toggle.TextColor3 = Color3.fromRGB(80, 40, 50)
 toggle.BorderSizePixel = 0
@@ -356,7 +387,7 @@ toggle.TextSize = 11
 round(toggle, 10)
 
 local FRAME_W = 300
-local FRAME_H = 368
+local FRAME_H = 432
 local frame = Instance.new("Frame", sg)
 frame.Size = UDim2.new(0, FRAME_W, 0, FRAME_H)
 frame.Position = UDim2.new(1, -(FRAME_W+15), 0.5, -(FRAME_H/2))
@@ -455,16 +486,28 @@ local function makeTextBox(ypos, x, w, parent, placeholder)
     return tb
 end
 
-local actionBtn   = makeBtn("aggresive 😣",   20)
-local blockBtn    = makeBtn("painkillas 😼",  52)
-local arcBtn      = makeBtn("steady 1 🙃",    84)
-local arcBtn2     = makeBtn("steady 2 🙃",   116)
-local deathBtn    = makeBtn("blinking 😶",   148)
-local noSlowBtn   = makeBtn("adrenaline 😗", 180)
-local antiGrabBtn = makeBtn("no touchy 😟",  212)
-local grabBtn     = makeBtn("huggies ❤️",    244)
-local spamBtn     = makeBtn("spammyz 😙",    276)
-local msgBox      = makeTextBox(308, LX, LW, frame, "Type Here")
+local actionBtn    = makeBtn("kill aura: off",   20)
+local hitMultiBox  = makeTextBox(52, LX, LW, frame, "multiplier (above 20 lags)")
+local blockBtn     = makeBtn("auto block: off",  80)
+local arcBtn       = makeBtn("anti ragdoll: off",   112)
+local arcBtn2      = makeBtn("anti grab rag: off",  144)
+local deathBtn     = makeBtn("death tp: off",   176)
+local noSlowBtn    = makeBtn("no slow: off",     208)
+local antiGrabBtn  = makeBtn("anti grab: off",   240)
+local grabDelayBox = makeTextBox(272, LX, LW, frame, "grab tp delay (default 0.2)")
+local grabBtn      = makeBtn("auto grab: off",   300)
+local spamBtn      = makeBtn("spam notify: off", 332)
+local msgBox       = makeTextBox(364, LX, LW, frame, "notify message")
+
+hitMultiBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local val = tonumber(hitMultiBox.Text)
+    if val and val >= 1 then hitMultiplier = math.floor(val) end
+end)
+
+grabDelayBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local val = tonumber(grabDelayBox.Text)
+    if val then antiGrabDelay = val end
+end)
 
 local vDiv = Instance.new("Frame", frame)
 vDiv.Size = UDim2.new(0, 1, 1, -20)
@@ -474,9 +517,9 @@ vDiv.BorderSizePixel = 0
 
 local RX, RW = 160, 132
 
-makeLabel("besties", 20, RX, RW)
+makeLabel("friends", 20, RX, RW)
 local friendsBox  = makeTextBox(35, RX, RW)
-local friendHLBtn = makeBtn("bestie tag: off", 63, frame, RX, RW)
+local friendHLBtn = makeBtn("friend tag: off", 63, frame, RX, RW)
 friendHLBtn.TextSize = 10
 
 local hDiv = Instance.new("Frame", frame)
@@ -485,9 +528,9 @@ hDiv.Position = UDim2.new(0, RX, 0, 97)
 hDiv.BackgroundColor3 = Color3.fromRGB(220, 140, 160)
 hDiv.BorderSizePixel = 0
 
-makeLabel("baddies", 105, RX, RW)
+makeLabel("targets", 105, RX, RW)
 local targetsBox  = makeTextBox(120, RX, RW)
-local targetHLBtn = makeBtn("baddie tag: off", 148, frame, RX, RW)
+local targetHLBtn = makeBtn("target tag: off", 148, frame, RX, RW)
 targetHLBtn.TextSize = 10
 
 friendsBox:GetPropertyChangedSignal("Text"):Connect(function()
@@ -501,14 +544,14 @@ end)
 
 friendHLBtn.MouseButton1Click:Connect(function()
     friendTagEnabled = not friendTagEnabled
-    friendHLBtn.Text = friendTagEnabled and "bestie tag: on" or "bestie tag: off"
+    friendHLBtn.Text = friendTagEnabled and "friend tag: on" or "friend tag: off"
     friendHLBtn.BackgroundColor3 = friendTagEnabled and Color3.fromRGB(210,210,210) or Color3.fromRGB(255,255,255)
     refreshTags()
 end)
 
 targetHLBtn.MouseButton1Click:Connect(function()
     targetTagEnabled = not targetTagEnabled
-    targetHLBtn.Text = targetTagEnabled and "baddie tag: on" or "baddie tag: off"
+    targetHLBtn.Text = targetTagEnabled and "target tag: on" or "target tag: off"
     targetHLBtn.BackgroundColor3 = targetTagEnabled and Color3.fromRGB(210,210,210) or Color3.fromRGB(255,255,255)
     refreshTags()
 end)
@@ -520,11 +563,11 @@ toggle.MouseButton1Click:Connect(function() frame.Visible = not frame.Visible en
 actionBtn.MouseButton1Click:Connect(function()
     running = not running
     if running then
-        actionBtn.Text = "passive 🥺"
+        actionBtn.Text = "kill aura: on"
         actionBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
         conn = RS.Heartbeat:Connect(hit)
     else
-        actionBtn.Text = "aggresive 😣"
+        actionBtn.Text = "kill aura: off"
         actionBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
         if conn then conn:Disconnect() conn = nil end
     end
@@ -533,7 +576,7 @@ end)
 blockBtn.MouseButton1Click:Connect(function()
     blocking = not blocking
     if blocking then
-        blockBtn.Text = "sugarcrash 😓"
+        blockBtn.Text = "auto block: on"
         blockBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
         game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Block:InvokeServer(true)
         blockConn = RS.Heartbeat:Connect(function()
@@ -541,7 +584,7 @@ blockBtn.MouseButton1Click:Connect(function()
             if blocking then game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Block:InvokeServer(true) end
         end)
     else
-        blockBtn.Text = "painkillas 😼"
+        blockBtn.Text = "auto block: off"
         blockBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
         if blockConn then blockConn:Disconnect() blockConn = nil end
         game:GetService("ReplicatedStorage").Packages.Knit.Services.CombatService.RF.Block:InvokeServer(false)
@@ -551,11 +594,11 @@ end)
 arcBtn.MouseButton1Click:Connect(function()
     AntiRagEnabled = not AntiRagEnabled
     if AntiRagEnabled then
-        arcBtn.Text = "wobbly 1 😒"
+        arcBtn.Text = "anti ragdoll: on"
         arcBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
         startARC()
     else
-        arcBtn.Text = "steady 1 🙃"
+        arcBtn.Text = "anti ragdoll: off"
         arcBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
         stopARC()
     end
@@ -564,11 +607,11 @@ end)
 arcBtn2.MouseButton1Click:Connect(function()
     AntiGrabRagEnabled = not AntiGrabRagEnabled
     if AntiGrabRagEnabled then
-        arcBtn2.Text = "wobbly 2 😒"
+        arcBtn2.Text = "anti grab rag: on"
         arcBtn2.BackgroundColor3 = Color3.fromRGB(210,210,210)
         startARC()
     else
-        arcBtn2.Text = "steady 2 🙃"
+        arcBtn2.Text = "anti grab rag: off"
         arcBtn2.BackgroundColor3 = Color3.fromRGB(255,255,255)
         stopARC()
     end
@@ -577,10 +620,10 @@ end)
 deathBtn.MouseButton1Click:Connect(function()
     deathTpEnabled = not deathTpEnabled
     if deathTpEnabled then
-        deathBtn.Text = "teary eye ☹️"
+        deathBtn.Text = "death tp: on"
         deathBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
     else
-        deathBtn.Text = "blinking 😶"
+        deathBtn.Text = "death tp: off"
         deathBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
         lastDeathPos = nil
     end
@@ -589,7 +632,7 @@ end)
 noSlowBtn.MouseButton1Click:Connect(function()
     noSlowEnabled = not noSlowEnabled
     if noSlowEnabled then
-        noSlowBtn.Text = "drowsy 😴"
+        noSlowBtn.Text = "no slow: on"
         noSlowBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
         noSlowConn = RS.Heartbeat:Connect(function()
             local c = me.Character
@@ -597,7 +640,7 @@ noSlowBtn.MouseButton1Click:Connect(function()
             if hum and hum.WalkSpeed < 16 then hum.WalkSpeed = 16 end
         end)
     else
-        noSlowBtn.Text = "adrenaline 😗"
+        noSlowBtn.Text = "no slow: off"
         noSlowBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
         if noSlowConn then noSlowConn:Disconnect() noSlowConn = nil end
     end
@@ -606,18 +649,20 @@ end)
 antiGrabBtn.MouseButton1Click:Connect(function()
     antiGrabEnabled = not antiGrabEnabled
     if antiGrabEnabled then
-        antiGrabBtn.Text = "yes touchy 😮"
+        antiGrabBtn.Text = "anti grab: on"
         antiGrabBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
+        _startBadZoneWatch()
     else
-        antiGrabBtn.Text = "no touchy 😟"
+        antiGrabBtn.Text = "anti grab: off"
         antiGrabBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
+        _stopBadZoneWatch()
     end
 end)
 
 grabBtn.MouseButton1Click:Connect(function()
     grabbing = not grabbing
     if grabbing then
-        grabBtn.Text = "gimmie space 💔"
+        grabBtn.Text = "auto grab: on"
         grabBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
         task.spawn(function()
             while grabbing do
@@ -626,7 +671,7 @@ grabBtn.MouseButton1Click:Connect(function()
             end
         end)
     else
-        grabBtn.Text = "huggies ❤️"
+        grabBtn.Text = "auto grab: off"
         grabBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
     end
 end)
@@ -634,7 +679,7 @@ end)
 spamBtn.MouseButton1Click:Connect(function()
     spamming = not spamming
     if spamming then
-        spamBtn.Text = "antisocial 😶"
+        spamBtn.Text = "spam notify: on"
         spamBtn.BackgroundColor3 = Color3.fromRGB(210,210,210)
         task.spawn(function()
             while spamming do
@@ -649,7 +694,7 @@ spamBtn.MouseButton1Click:Connect(function()
             end
         end)
     else
-        spamBtn.Text = "spammyz 😙"
+        spamBtn.Text = "spam notify: off"
         spamBtn.BackgroundColor3 = Color3.fromRGB(255,255,255)
     end
 end)
